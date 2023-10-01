@@ -1,7 +1,8 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI};
 
-use bevy::{prelude::*, render::{render_resource::{TextureFormat, TextureDimension, Extent3d}, mesh::VertexAttributeValues}, asset::LoadedFolder};
+use bevy::{prelude::*, render::{render_resource::{TextureFormat, TextureDimension, Extent3d}, mesh::VertexAttributeValues}};
 use scene_hook::{SceneHook, HookPlugin};
+use rand::Rng;
 
 
 mod scene_hook;
@@ -17,7 +18,9 @@ fn main() {
         .add_systems(Update, setup_markers.run_if(in_state(AppState::Setup)))
         .add_systems(Update, check_setup_finished.run_if(in_state(AppState::Setup)))
         .add_systems(OnEnter(AppState::SetupTiles), setup_tiles)
-        .add_systems(Update, rotate.run_if(in_state(AppState::Running)))
+        .add_systems(Update, (
+            tile_selection_toggle, move_tile_selection, react_on_removal, move_selected_tile, randomize_tiles
+        ).run_if(in_state(AppState::Running)))
         .run();
 }
 
@@ -31,12 +34,13 @@ enum AppState {
 
 #[derive(Resource)]
 struct AppConfig {
-    taquin_size: u8
+    taquin_size: i8,
+    tiles_nb: i8
 }
 
 impl FromWorld for AppConfig {
     fn from_world(_world: &mut World) -> Self {
-        AppConfig { taquin_size: 4 }
+        AppConfig { taquin_size: 4, tiles_nb: 16 }
     }
 }
 
@@ -84,8 +88,18 @@ impl Markers {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
+struct EmptyTile;
+
+#[derive(Component, Debug)]
 struct Tile;
+
+#[derive(Component, Debug)]
+struct TileSelected;
+
+#[derive(Component, Debug)]
+struct TileIndex(i8);
+
 
 fn setup_scene(
     mut commands: Commands,
@@ -142,9 +156,9 @@ fn setup_scene(
 
 fn setup_markers(
     mut markers: ResMut<Markers>,
-    query: Query<(Entity, &Name, &GlobalTransform), With<Marker>>
+    query: Query<(&Name, &GlobalTransform), With<Marker>>
 ) {
-    for (entity, name, global_transform) in query.iter() {
+    for (name, global_transform) in query.iter() {
         match name.as_str() {
             "TL" => markers.tl = Some(global_transform.translation()),
             "TR" => markers.tr = Some(global_transform.translation()),
@@ -196,6 +210,18 @@ fn setup_tiles(
     
     for i in 0..app_config.taquin_size {
         for j in 1..=app_config.taquin_size {
+            let translation = Vec3 { 
+                x: origin.x + i as f32 * tile_width + tile_width / 2. as f32, 
+                y: origin.y - j as f32 * tile_height + tile_height / 2., 
+                z: 0.75
+            };
+            
+            let tile_index = (j - 1) * app_config.taquin_size + i;
+
+            if i == app_config.taquin_size - 1 && j == app_config.taquin_size {
+                commands.spawn((Transform::from_translation(translation), EmptyTile, TileIndex(tile_index)));
+                continue;
+            }
             let mut block = Mesh::from(shape::Quad::new(Vec2::new(tile_width, tile_height)));
             if let Some(attr) = block.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
                 *attr = VertexAttributeValues::Float32x2(vec![
@@ -206,7 +232,7 @@ fn setup_tiles(
                 ])
             }
             let block_handle = meshes.add(block);
-            commands.spawn((PbrBundle {
+            let mut tile_command = commands.spawn((PbrBundle {
                 mesh: block_handle,
                 material: materials.add(StandardMaterial {
                     base_color_texture: Some(taquin_sprite_handles.bevy.clone()),
@@ -214,22 +240,155 @@ fn setup_tiles(
                     cull_mode: None,
                     ..default()
                 }),
-                transform: Transform::from_translation(Vec3 { x: origin.x + i as f32 * tile_width + tile_width / 2. as f32, y: origin.y - j as f32 * tile_height + tile_height / 2., z: 0.75 }),
+                transform: Transform::from_translation(translation),
                 ..default()
-            }, Tile));
+            }, Tile, TileIndex(tile_index)));
+            if i == 0 && j == 1 {
+                tile_command.insert(TileSelected);
+            }
         }
 
         next_state.set(AppState::Running);
     }
 }
 
-fn rotate(mut query: Query<(&mut Transform), With<Tile>>, time: Res<Time>) {
-    for mut transform in &mut query {
-        transform.rotate_y(time.delta_seconds());
-        transform.rotate_x(time.delta_seconds());
+fn tile_selection_toggle(
+    query: Query<(&Handle<StandardMaterial>, &TileIndex), Changed<TileSelected>>,
+    mut materials: ResMut<Assets<StandardMaterial>>
+) {
+    for (material, position) in &query {
+        info!("{:?} changed: {:?}", material, position);
+        if let Some(material) = materials.get_mut(material) {
+            material.emissive = Color::RED;
+        } 
     }
 }
 
+fn react_on_removal(
+    mut removed: RemovedComponents<TileSelected>, mut query: Query<&Handle<StandardMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>
+) {
+    for entity in removed.read() {
+        if let Ok(mut material) = query.get_mut(entity) {
+            if let Some(material) = materials.get_mut(material) {
+                material.emissive = Color::BLACK;
+            } 
+        }
+    }
+}
+
+fn move_tile_selection(
+    empty_tile_query: Query<&TileIndex, (With<EmptyTile>, Without<TileSelected>)>,
+    selected_tile_query: Query<(Entity, &TileIndex), With<TileSelected>>,
+    tiles_query: Query<(Entity, &TileIndex), Without<TileSelected>>,
+    keyboard_input: Res<Input<KeyCode>>,
+    app_config : Res<AppConfig>,
+    mut commands: Commands,
+) {
+    let Ok((selected_tile_entity, selected_tile_index)) = selected_tile_query.get_single() else {
+        return;
+    };
+    let Ok(empty_tile_index) = empty_tile_query.get_single() else {
+        return;
+    };
+    let mut selected_tile_new_position = selected_tile_index.0;
+
+    if keyboard_input.just_released(KeyCode::Left) {
+        selected_tile_new_position -= 1;
+        if selected_tile_new_position == empty_tile_index.0 {
+            selected_tile_new_position -= 1;
+        }
+    } else if keyboard_input.just_released(KeyCode::Right) {
+        selected_tile_new_position += 1;
+        if selected_tile_new_position == empty_tile_index.0 {
+            selected_tile_new_position += 1;
+        }
+    } else if keyboard_input.just_released(KeyCode::Up) {
+        selected_tile_new_position -= app_config.taquin_size;
+        if selected_tile_new_position == empty_tile_index.0 {
+            selected_tile_new_position -= app_config.taquin_size;
+        }
+    } else if keyboard_input.just_released(KeyCode::Down) {
+        selected_tile_new_position += app_config.taquin_size;
+        if selected_tile_new_position == empty_tile_index.0 {
+            selected_tile_new_position += app_config.taquin_size;
+        }
+    }
+
+    if selected_tile_new_position < 0 {
+        selected_tile_new_position = app_config.taquin_size.pow(2) - ((selected_tile_new_position + 1) % app_config.taquin_size) - 1;
+        if selected_tile_new_position == empty_tile_index.0 {
+            selected_tile_new_position -= 1;
+        }
+    } else if selected_tile_new_position > app_config.taquin_size.pow(2) - 1 {
+        selected_tile_new_position = selected_tile_new_position % app_config.taquin_size;
+    }
+
+    for (tile_entity, tile_position) in tiles_query.iter() {
+        if tile_position.0 == selected_tile_new_position {
+            commands.entity(selected_tile_entity).remove::<TileSelected>();
+            commands.entity(tile_entity).insert(TileSelected);
+        }
+    }
+}
+
+fn move_selected_tile(
+    mut selected_tile_query: Query<(&mut Transform, &mut TileIndex), (With<TileSelected>, Without<EmptyTile>)>,
+    mut empty_tile_query: Query<(&mut Transform, &mut TileIndex), (With<EmptyTile>, Without<TileSelected>)>,
+    keyboard_input: Res<Input<KeyCode>>,
+    app_config : Res<AppConfig>
+) {
+    if !keyboard_input.just_released(KeyCode::Space) {
+        return;
+    }
+    let Ok((mut empty_tile_transform, mut empty_tile_index)) = empty_tile_query.get_single_mut() else {
+        return;
+    };
+    let Ok((mut selected_tile_transform, mut selected_tile_index)) = selected_tile_query.get_single_mut() else {
+        return;
+    };
+    let diff = empty_tile_index.0 - selected_tile_index.0;
+    let diff_checker = [-1, 1, app_config.taquin_size, -app_config.taquin_size];
+    
+    if diff_checker.contains(&diff) {
+        let temp_transform = *empty_tile_transform;
+        *empty_tile_transform = *selected_tile_transform;
+        *selected_tile_transform = temp_transform;
+
+        let temp_index = empty_tile_index.0;
+        empty_tile_index.0 = selected_tile_index.0;
+        selected_tile_index.0 = temp_index;
+    }
+}
+
+fn randomize_tiles(
+    app_config : Res<AppConfig>,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut tiles_query: Query<(&mut Transform, &mut TileIndex)>,
+) {
+    if !keyboard_input.just_released(KeyCode::R) {
+        return;
+    }
+
+    let mut rng = rand::thread_rng();
+    for i in 0..64 {
+        let n1: usize = rng.gen_range(0..app_config.tiles_nb as usize);
+        let n2: usize = rng.gen_range(0..app_config.tiles_nb as usize);
+        if n1 == n2 {
+            continue;
+        }
+        let mut tiles_iter = tiles_query.iter_mut();
+        if let (Some(mut tile1), Some(mut tile2)) = (tiles_iter.nth(n1), tiles_iter.nth(n2)) {
+            let temp_transform = *(tile1.0);
+            *tile1.0 = *tile2.0;
+            *tile2.0 = temp_transform;
+    
+            let temp_index = tile1.1.0;
+            tile1.1.0 = tile2.1.0;
+            tile2.1.0 = temp_index;
+        }
+    }
+}
 
 /// Creates a colorful test pattern
 fn uv_debug_texture() -> Image {
