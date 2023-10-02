@@ -1,4 +1,4 @@
-use std::{f32::consts::PI};
+use std::f32::consts::PI;
 
 use bevy::{prelude::*, render::{render_resource::{TextureFormat, TextureDimension, Extent3d}, mesh::VertexAttributeValues}};
 use scene_hook::{SceneHook, HookPlugin};
@@ -14,13 +14,15 @@ fn main() {
         .add_state::<AppState>()
         .init_resource::<AppConfig>()
         .init_resource::<Markers>()
+        .init_resource::<Tiles>()
         .add_systems(OnEnter(AppState::Setup), setup_scene)
         .add_systems(Update, setup_markers.run_if(in_state(AppState::Setup)))
         .add_systems(Update, check_setup_finished.run_if(in_state(AppState::Setup)))
         .add_systems(OnEnter(AppState::SetupTiles), setup_tiles)
         .add_systems(Update, (
-            tile_selection_toggle, move_tile_selection, react_on_removal, move_selected_tile, randomize_tiles
+            tile_selection_toggle, move_tile_selection, react_on_removal, move_selected_tile
         ).run_if(in_state(AppState::Running)))
+        .add_systems(Update, randomize_tiles)
         .run();
 }
 
@@ -40,7 +42,16 @@ struct AppConfig {
 
 impl FromWorld for AppConfig {
     fn from_world(_world: &mut World) -> Self {
-        AppConfig { taquin_size: 4, tiles_nb: 16 }
+        AppConfig { taquin_size: 2, tiles_nb: 4 }
+    }
+}
+
+#[derive(Resource)]
+struct Tiles (Vec<Tile>);
+
+impl FromWorld for Tiles {
+    fn from_world(_world: &mut World) -> Self {
+        Tiles(vec![])
     }
 }
 
@@ -92,7 +103,7 @@ impl Markers {
 struct EmptyTile;
 
 #[derive(Component, Debug)]
-struct Tile;
+struct Tile(i8);
 
 #[derive(Component, Debug)]
 struct TileSelected;
@@ -196,6 +207,7 @@ fn setup_tiles(
     taquin_sprite_handles: Res<TaquinSprites>,
     markers: Res<Markers>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut tiles: ResMut<Tiles>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     app_config : Res<AppConfig>,
     mut next_state: ResMut<NextState<AppState>>,
@@ -220,6 +232,7 @@ fn setup_tiles(
 
             if i == app_config.taquin_size - 1 && j == app_config.taquin_size {
                 commands.spawn((Transform::from_translation(translation), EmptyTile, TileIndex(tile_index)));
+                tiles.0.push(Tile(tile_index));
                 continue;
             }
             let mut block = Mesh::from(shape::Quad::new(Vec2::new(tile_width, tile_height)));
@@ -242,10 +255,11 @@ fn setup_tiles(
                 }),
                 transform: Transform::from_translation(translation),
                 ..default()
-            }, Tile, TileIndex(tile_index)));
+            }, TileIndex(tile_index)));
             if i == 0 && j == 1 {
                 tile_command.insert(TileSelected);
             }
+            tiles.0.push(Tile(tile_index))
         }
 
         next_state.set(AppState::Running);
@@ -269,8 +283,8 @@ fn react_on_removal(
     mut materials: ResMut<Assets<StandardMaterial>>
 ) {
     for entity in removed.read() {
-        if let Ok(mut material) = query.get_mut(entity) {
-            if let Some(material) = materials.get_mut(material) {
+        if let Ok(material_handle) = query.get_mut(entity) {
+            if let Some(material) = materials.get_mut(material_handle) {
                 material.emissive = Color::BLACK;
             } 
         }
@@ -336,7 +350,8 @@ fn move_selected_tile(
     mut selected_tile_query: Query<(&mut Transform, &mut TileIndex), (With<TileSelected>, Without<EmptyTile>)>,
     mut empty_tile_query: Query<(&mut Transform, &mut TileIndex), (With<EmptyTile>, Without<TileSelected>)>,
     keyboard_input: Res<Input<KeyCode>>,
-    app_config : Res<AppConfig>
+    app_config : Res<AppConfig>,
+    mut tiles: ResMut<Tiles>,
 ) {
     if !keyboard_input.just_released(KeyCode::Space) {
         return;
@@ -348,7 +363,19 @@ fn move_selected_tile(
         return;
     };
     let diff = empty_tile_index.0 - selected_tile_index.0;
-    let diff_checker = [-1, 1, app_config.taquin_size, -app_config.taquin_size];
+    let mut diff_checker: Vec<i8> = vec![];
+    if selected_tile_index.0 % app_config.taquin_size != 0 {
+        diff_checker.push(-1);
+    }
+    if selected_tile_index.0 % app_config.taquin_size != app_config.taquin_size - 1 {
+        diff_checker.push(1);
+    }
+    if selected_tile_index.0 + app_config.taquin_size < app_config.tiles_nb {
+        diff_checker.push(app_config.taquin_size);
+    }
+    if selected_tile_index.0 - app_config.taquin_size >= 0 {
+        diff_checker.push(-app_config.taquin_size);
+    }
     
     if diff_checker.contains(&diff) {
         let temp_transform = *empty_tile_transform;
@@ -358,20 +385,24 @@ fn move_selected_tile(
         let temp_index = empty_tile_index.0;
         empty_tile_index.0 = selected_tile_index.0;
         selected_tile_index.0 = temp_index;
+
+        tiles.0.swap(selected_tile_index.0 as usize, empty_tile_index.0 as usize);
     }
 }
 
 fn randomize_tiles(
     app_config : Res<AppConfig>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut tiles_query: Query<(&mut Transform, &mut TileIndex)>,
+    tiles: ResMut<Tiles>,
+    mut tiles_query: Query<(&mut Transform, &mut TileIndex, Option<&EmptyTile>)>,
 ) {
     if !keyboard_input.just_released(KeyCode::R) {
         return;
     }
 
     let mut rng = rand::thread_rng();
-    for i in 0..64 {
+    let mut empty_tile_index: Option<i8> = None;
+    for _i in 0..64 {
         let n1: usize = rng.gen_range(0..app_config.tiles_nb as usize);
         let n2: usize = rng.gen_range(0..app_config.tiles_nb as usize);
         if n1 == n2 {
@@ -386,8 +417,56 @@ fn randomize_tiles(
             let temp_index = tile1.1.0;
             tile1.1.0 = tile2.1.0;
             tile2.1.0 = temp_index;
+            if tile1.2.is_some() {
+                empty_tile_index = Some(tile1.1.0)
+            } else if tile2.2.is_some() {
+                empty_tile_index = Some(tile2.1.0)
+            }
         }
     }
+
+    if let Some(index) = empty_tile_index {
+        if !is_solvable(tiles, app_config,index) {
+            println!("PAS SOLVABLE");
+        } else {
+            println!("SOLVABLE");
+        }
+    }
+}
+
+fn get_inversion_count(
+    tiles: ResMut<Tiles>,
+) -> usize
+{
+    let mut inversion_counter: usize = 0;
+    for tile_1 in tiles.0.iter() {
+        let tile_index_1 = tile_1.0;
+        for tile_2 in tiles.0.iter().skip(1) {
+            let tile_index_2 = tile_2.0;
+            if tile_index_1 > tile_index_2 {
+                inversion_counter += 1;
+            }
+        }
+    }
+    return inversion_counter;
+}
+
+fn is_solvable(
+    tiles: ResMut<Tiles>,
+    app_config: Res<AppConfig>,
+    empty_tile_index: i8
+) -> bool {
+    let inversion_count = get_inversion_count(tiles);
+
+    if app_config.taquin_size & 1 == 1 {
+        return inversion_count & 1 != 1;
+    }
+
+    if empty_tile_index & 1 == 1 {
+        return inversion_count & 1 != 1;
+    }
+
+    return inversion_count & 1 == 1;
 }
 
 /// Creates a colorful test pattern
