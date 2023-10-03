@@ -40,6 +40,59 @@ struct Taquin {
     tiles: Vec<Vec<Tile>>
 }
 
+impl Taquin {
+    fn get_next_selection_position(&self, current_position: &TilePosition, direction: KeyCode) -> TilePosition {
+        let mut position = *current_position;
+        match direction {
+            KeyCode::Left => {
+                loop {
+                    position.i -= 1;
+                    if position.i < 0 {
+                        position.i = self.size - 1;
+                    }
+                    if !self.tiles[position.j as usize][position.i as usize].is_empty(self.size) {
+                        return position
+                    }
+                }
+            },
+            KeyCode::Right => {
+                loop {
+                    position.i += 1;
+                    if position.i >= self.size {
+                        position.i = 0;
+                    }
+                    if !self.tiles[position.j as usize][position.i as usize].is_empty(self.size) {
+                        return position
+                    }
+                }
+            },
+            KeyCode::Up => {
+                loop {
+                    position.j -= 1;
+                    if position.j < 0 {
+                        position.j = self.size - 1;
+                    }
+                    if !self.tiles[position.j as usize][position.i as usize].is_empty(self.size) {
+                        return position
+                    }
+                }
+            },
+            KeyCode::Down => {
+                loop {
+                    position.j += 1;
+                    if position.j >= self.size {
+                        position.j = 0;
+                    }
+                    if !self.tiles[position.j as usize][position.i as usize].is_empty(self.size) {
+                        return position
+                    }
+                }
+            }
+            _ => position
+        }
+    }
+}
+
 impl FromWorld for Taquin {
     fn from_world(_world: &mut World) -> Self {
         Taquin { size: 2, tiles_nb: 4, tiles: vec![] }
@@ -95,6 +148,12 @@ struct EmptyTile;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, PartialOrd)]
 struct Tile(i8);
+
+impl Tile {
+    fn is_empty(&self, taquin_size: i8) -> bool {
+        return self.0 == taquin_size * taquin_size;
+    }
+}
 
 #[derive(Component, Debug)]
 struct TileSelected;
@@ -306,7 +365,6 @@ fn react_on_removal(
 }
 
 fn move_tile_selection(
-    empty_tile_query: Query<&TilePosition, (With<EmptyTile>, Without<TileSelected>)>,
     selected_tile_query: Query<(Entity, &TilePosition), With<TileSelected>>,
     tiles_query: Query<(Entity, &TilePosition), Without<TileSelected>>,
     keyboard_input: Res<Input<KeyCode>>,
@@ -316,42 +374,20 @@ fn move_tile_selection(
     let Ok((selected_tile_entity, selected_tile_index)) = selected_tile_query.get_single() else {
         return;
     };
-    let Ok(empty_tile_index) = empty_tile_query.get_single() else {
-        return;
-    };
     let mut selected_tile_new_position = *selected_tile_index;
 
     if keyboard_input.just_released(KeyCode::Left) {
-        selected_tile_new_position.i -= 1;
-        if &selected_tile_new_position == empty_tile_index {
-            selected_tile_new_position.i -= 1;
-        }
+        selected_tile_new_position = taquin.get_next_selection_position(selected_tile_index, KeyCode::Left)
     } else if keyboard_input.just_released(KeyCode::Right) {
-        selected_tile_new_position.i += 1;
-        if &selected_tile_new_position == empty_tile_index {
-            selected_tile_new_position.i += 1;
-        }
+        selected_tile_new_position = taquin.get_next_selection_position(selected_tile_index, KeyCode::Right)
     } else if keyboard_input.just_released(KeyCode::Up) {
-        selected_tile_new_position.j -= 1;
-        if &selected_tile_new_position == empty_tile_index {
-            selected_tile_new_position.j -= 1;
-        }
+        selected_tile_new_position = taquin.get_next_selection_position(selected_tile_index, KeyCode::Up)
     } else if keyboard_input.just_released(KeyCode::Down) {
-        selected_tile_new_position.j += 1;
-        if &selected_tile_new_position == empty_tile_index {
-            selected_tile_new_position.j += 1;
-        }
-    }
-
-    if selected_tile_new_position.i < 0 {
-        selected_tile_new_position.i = taquin.size - 1;
-    }
-    if selected_tile_new_position.j >= taquin.size {
-        selected_tile_new_position.j = 0;
+        selected_tile_new_position = taquin.get_next_selection_position(selected_tile_index, KeyCode::Down)
     }
 
     for (tile_entity, tile_position) in tiles_query.iter() {
-        if tile_position == &selected_tile_new_position {
+        if *tile_position == selected_tile_new_position {
             commands.entity(selected_tile_entity).remove::<TileSelected>();
             commands.entity(tile_entity).insert(TileSelected);
         }
