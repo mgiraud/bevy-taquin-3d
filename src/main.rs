@@ -37,7 +37,7 @@ enum AppState {
 #[derive(Resource)]
 struct AppConfig {
     taquin_size: i8,
-    tiles_nb: i8
+    tiles_nb: i8,
 }
 
 impl FromWorld for AppConfig {
@@ -46,7 +46,7 @@ impl FromWorld for AppConfig {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 struct Tiles (Vec<Tile>);
 
 impl FromWorld for Tiles {
@@ -232,7 +232,7 @@ fn setup_tiles(
 
             if i == app_config.taquin_size - 1 && j == app_config.taquin_size {
                 commands.spawn((Transform::from_translation(translation), EmptyTile, TileIndex(tile_index)));
-                tiles.0.push(Tile(tile_index));
+                tiles.0.push(Tile(0));
                 continue;
             }
             let mut block = Mesh::from(shape::Quad::new(Vec2::new(tile_width, tile_height)));
@@ -259,7 +259,7 @@ fn setup_tiles(
             if i == 0 && j == 1 {
                 tile_command.insert(TileSelected);
             }
-            tiles.0.push(Tile(tile_index))
+            tiles.0.push(Tile(tile_index + 1))
         }
 
         next_state.set(AppState::Running);
@@ -393,7 +393,7 @@ fn move_selected_tile(
 fn randomize_tiles(
     app_config : Res<AppConfig>,
     keyboard_input: Res<Input<KeyCode>>,
-    tiles: ResMut<Tiles>,
+    mut tiles: ResMut<Tiles>,
     mut tiles_query: Query<(&mut Transform, &mut TileIndex, Option<&EmptyTile>)>,
 ) {
     if !keyboard_input.just_released(KeyCode::R) {
@@ -422,11 +422,12 @@ fn randomize_tiles(
             } else if tile2.2.is_some() {
                 empty_tile_index = Some(tile2.1.0)
             }
+            tiles.0.swap(tile1.1.0 as usize, tile2.1.0 as usize)
         }
     }
 
     if let Some(index) = empty_tile_index {
-        if !is_solvable(tiles, app_config,index) {
+        if !is_solvable(tiles.as_mut(), app_config.as_ref(),index) {
             println!("PAS SOLVABLE");
         } else {
             println!("SOLVABLE");
@@ -435,15 +436,16 @@ fn randomize_tiles(
 }
 
 fn get_inversion_count(
-    tiles: ResMut<Tiles>,
+    tiles: &Tiles,
 ) -> usize
 {
     let mut inversion_counter: usize = 0;
-    for tile_1 in tiles.0.iter() {
+    let tile_1_iter = tiles.0.iter().take(tiles.0.len() - 1);
+    for (i, tile_1) in tile_1_iter.enumerate() {
         let tile_index_1 = tile_1.0;
-        for tile_2 in tiles.0.iter().skip(1) {
+        for tile_2 in tiles.0.iter().skip(i + 1) {
             let tile_index_2 = tile_2.0;
-            if tile_index_1 > tile_index_2 {
+            if tile_index_1 != 0 && tile_index_2 != 0 && tile_index_1 > tile_index_2 {
                 inversion_counter += 1;
             }
         }
@@ -451,19 +453,21 @@ fn get_inversion_count(
     return inversion_counter;
 }
 
-fn is_solvable(
-    tiles: ResMut<Tiles>,
-    app_config: Res<AppConfig>,
+fn is_solvable<'a>(
+    tiles: &'a Tiles,
+    app_config: &'a AppConfig,
     empty_tile_index: i8
 ) -> bool {
+    println!("{:?}", tiles);
     let inversion_count = get_inversion_count(tiles);
+    println!("Nombre inversion {:?}", inversion_count);
 
     if app_config.taquin_size & 1 == 1 {
-        return inversion_count & 1 != 1;
+        return inversion_count & 1 == 0;
     }
 
     if empty_tile_index & 1 == 1 {
-        return inversion_count & 1 != 1;
+        return inversion_count & 1 == 0;
     }
 
     return inversion_count & 1 == 1;
@@ -495,4 +499,23 @@ fn uv_debug_texture() -> Image {
         &texture_data,
         TextureFormat::Rgba8UnormSrgb,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::prelude::*;
+
+    use crate::{Tile, is_solvable, AppConfig, Tiles};
+
+    #[test]
+    fn test_is_solvable() {
+        let mut app = App::new();
+
+        app.world.insert_resource(Tiles(vec![Tile(1), Tile(2), Tile(3), Tile(0)]));
+        app.world.insert_resource(AppConfig {
+            taquin_size: 2,
+            tiles_nb: 4,
+        });
+        assert_eq!(is_solvable(app.world.resource::<Tiles>(), app.world.resource::<AppConfig>(), 3), true);
+    }
 }
