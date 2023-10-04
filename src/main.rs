@@ -1,6 +1,7 @@
 use std::{f32::consts::PI, env};
 
 use bevy::{prelude::*, render::{render_resource::{TextureFormat, TextureDimension, Extent3d}, mesh::VertexAttributeValues}};
+use gui::GuiPlugin;
 use scene_hook::{SceneHook, HookPlugin};
 use taquin::{Taquin, TaquinPlugin};
 use tile::{EmptyTile, TilePosition, Tile, TileSelected, TilePlugin};
@@ -9,6 +10,7 @@ use tile::{EmptyTile, TilePosition, Tile, TileSelected, TilePlugin};
 mod scene_hook;
 mod taquin;
 mod tile;
+mod gui;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -17,6 +19,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
         .add_plugins(HookPlugin)
         .add_plugins(TilePlugin)
+        .add_plugins(GuiPlugin)
         .add_plugins(TaquinPlugin {size: args.get(1).unwrap_or(&"2".to_string()).parse::<i8>().unwrap_or(2)})
         .add_state::<AppState>()
         .init_resource::<Markers>()

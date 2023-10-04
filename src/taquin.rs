@@ -10,8 +10,9 @@ pub struct TaquinPlugin {
 impl Plugin for TaquinPlugin {
     fn build(&self, app: &mut App) {
         app
+            .add_event::<TaquinShuffled>()
             .insert_resource(Taquin::new(self.size))
-            .add_systems(Update, (move_tile_selection,  move_selected_tile, randomize_tiles).run_if(in_state(AppState::Running)));
+            .add_systems(Update, (move_tile_selection,  move_selected_tile, shuffle).run_if(in_state(AppState::Running)));
     }
 }
 
@@ -21,6 +22,9 @@ pub struct Taquin {
     pub tiles_nb: usize,
     pub tiles: Vec<Vec<Tile>>
 }
+
+#[derive(Event, Default)]
+pub struct TaquinShuffled;
 
 impl Taquin {
     pub fn new(size: i8) -> Self {
@@ -196,8 +200,9 @@ fn move_selected_tile(
     }
 }
 
-fn randomize_tiles(
+fn shuffle(
     mut taquin : ResMut<Taquin>,
+    mut shuffle_events: EventWriter<TaquinShuffled>,
     keyboard_input: Res<Input<KeyCode>>,
     mut tiles_query: Query<(&mut Transform, &mut TilePosition)>,
 ) {
@@ -220,11 +225,7 @@ fn randomize_tiles(
         }
     }
 
-    if !taquin.is_solvable() {
-        println!("PAS SOLVABLE");
-    } else {
-        println!("SOLVABLE");
-    }
+    shuffle_events.send_default();
 }
 
 #[cfg(test)]
