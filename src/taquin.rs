@@ -112,6 +112,15 @@ impl Taquin {
     
         return inversion_count & 1 == 1;
     }
+
+    pub fn is_solved(&self) -> bool {
+        self.tiles.iter()
+            .flatten()
+            .collect::<Vec<&Tile>>()
+            .chunks(2)
+            .filter(|a| { a[0] > a[1] })
+            .count() == 0
+    }
 }
 
 fn move_tile_selection(
@@ -164,6 +173,10 @@ fn move_selected_tile(
         let temp_tile = taquin.tiles[selected_tile_index.j as usize][selected_tile_index.i as usize];
         taquin.tiles[selected_tile_index.j as usize][selected_tile_index.i as usize] = taquin.tiles[empty_tile_index.j as usize][empty_tile_index.i as usize];
         taquin.tiles[empty_tile_index.j as usize][empty_tile_index.i as usize] = temp_tile;
+    }
+
+    if taquin.is_solved() {
+        println!("SOLVED !");
     }
 }
 
