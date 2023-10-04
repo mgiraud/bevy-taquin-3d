@@ -67,15 +67,23 @@ struct Marker;
 
 #[derive(Resource, Default)]
 pub struct Markers {
-    pub tl : Option<Vec3>,
-    pub tr : Option<Vec3>,
-    pub bl : Option<Vec3>,
-    pub br : Option<Vec3>,
+    pub tl : Vec3,
+    pub tr : Vec3,
+    pub bl : Vec3,
+    pub br : Vec3,
 }
 
 impl Markers {
-    pub fn is_ready(&self) -> bool {
-        self.tl.is_some() && self.tr.is_some() && self.bl.is_some() && self.br.is_some()
+    fn is_ready(&self) -> bool {
+        self.tl != Vec3::default() && self.tr != Vec3::default() && self.bl != Vec3::default() && self.br != Vec3::default()
+    }
+
+    fn inner_width(&self) -> f32 {
+        self.tr.x - self.tl.x
+    }
+
+    fn inner_height(&self) -> f32 {
+        self.tr.y - self.br.y
     }
 }
 
@@ -139,10 +147,10 @@ fn setup_markers(
 ) {
     for (name, global_transform) in query.iter() {
         match name.as_str() {
-            "TL" => markers.tl = Some(global_transform.translation()),
-            "TR" => markers.tr = Some(global_transform.translation()),
-            "BL" => markers.bl = Some(global_transform.translation()),
-            "BR" => markers.br = Some(global_transform.translation()),
+            "TL" => markers.tl = global_transform.translation(),
+            "TR" => markers.tr = global_transform.translation(),
+            "BL" => markers.bl = global_transform.translation(),
+            "BR" => markers.br = global_transform.translation(),
             _ => (),
         };
     }
@@ -179,18 +187,15 @@ fn setup_tiles(
     mut taquin : ResMut<Taquin>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
-    let taquin_inner_width = markers.tr.unwrap().x - markers.tl.unwrap().x;
-    let taquin_inner_height = markers.tr.unwrap().y - markers.br.unwrap().y;
-    let tile_width = taquin_inner_width / taquin.size as f32;
-    let tile_height = taquin_inner_height / taquin.size as f32;
-    let tile_width_ratio = tile_width / taquin_inner_width;
-    let tile_height_ratio = tile_height / taquin_inner_height;
-    let origin = markers.tl.unwrap();
+    let tile_width = markers.inner_width() / taquin.size as f32;
+    let tile_height = markers.inner_height() / taquin.size as f32;
+    let tile_ratio = 1. / taquin.size as f32;
+    let origin = markers.tl;
 
     taquin.tiles = (0..taquin.size).map(|j| {
         (0..taquin.size).map(|i| {
             let translation = Vec3 { 
-                x: origin.x + i as f32 * tile_width + tile_width / 2. as f32, 
+                x: origin.x + i as f32 * tile_width + tile_width / 2., 
                 y: origin.y - j as f32 * tile_height - tile_height / 2., 
                 z: 0.75
             };
@@ -201,10 +206,10 @@ fn setup_tiles(
             let mut block = Mesh::from(shape::Quad::new(Vec2::new(tile_width, tile_height)));
             if let Some(attr) = block.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
                 *attr = VertexAttributeValues::Float32x2(vec![
-                    [0. + i as f32 * tile_width_ratio, (j + 1) as f32 * tile_height_ratio],
-                    [0. + i as f32 * tile_width_ratio, j  as f32 * tile_height_ratio],
-                    [(i + 1) as f32 * tile_width_ratio, j  as f32 * tile_height_ratio],
-                    [(i + 1) as f32 * tile_width_ratio, (j + 1) as f32 * tile_height_ratio],
+                    [0. + i as f32 * tile_ratio, (j + 1) as f32 * tile_ratio],
+                    [0. + i as f32 * tile_ratio, j  as f32 * tile_ratio],
+                    [(i + 1) as f32 * tile_ratio, j  as f32 * tile_ratio],
+                    [(i + 1) as f32 * tile_ratio, (j + 1) as f32 * tile_ratio],
                 ]);
             }
             let mut tile_command = commands.spawn((PbrBundle {
