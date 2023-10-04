@@ -24,7 +24,7 @@ pub struct Taquin {
 
 impl Taquin {
     pub fn new(size: i8) -> Self {
-        Self { size, tiles_nb: (size * size - 1) as usize, tiles: vec![] }
+        Self { size, tiles_nb: (size * size) as usize, tiles: vec![] }
     }
 
     pub fn get_next_selection_position(&self, current_position: &TilePosition, direction: KeyCode) -> TilePosition {
@@ -94,14 +94,27 @@ impl Taquin {
         return inversion_counter;
     }
 
-    pub fn is_solvable(
-        &self,
-        empty_tile_position: TilePosition
-    ) -> bool {
-        println!("{:?}", self.tiles);
+    pub fn get_empty_tile_position(&self) -> TilePosition
+    {
+        let mut ret_i = 0;
+        let mut ret_j = 0;
+
+        self.tiles.iter().enumerate().for_each(|(j, row)| {
+           row.iter().enumerate().for_each(|(i, tile)|  {
+                if tile.0 == self.tiles_nb as i8 {
+                    ret_i = i;
+                    ret_j = j;
+                }
+           })
+        });
+
+        TilePosition::new(ret_i as i8, ret_j as i8)
+    }
+
+    pub fn is_solvable(&self) -> bool {
         let inversion_count = self.get_inversion_count();
-        println!("Nombre inversion {:?}", inversion_count);
-    
+        let empty_tile_position = self.get_empty_tile_position();
+
         if self.size & 1 == 1 {
             return empty_tile_position.j & 1 == 0;
         }
@@ -120,6 +133,12 @@ impl Taquin {
             .chunks(2)
             .filter(|a| { a[0] > a[1] })
             .count() == 0
+    }
+
+    pub fn swap_tiles(&mut self, a: TilePosition, b: TilePosition) {
+        let temp_tile = self.tiles[a.j as usize][a.i as usize];
+        self.tiles[a.j as usize][a.i as usize] = self.tiles[b.j as usize][b.i as usize];
+        self.tiles[b.j as usize][b.i as usize] = temp_tile;
     }
 }
 
@@ -169,10 +188,7 @@ fn move_selected_tile(
     if selected_tile_index.is_neighbour_of(empty_tile_index.as_ref()) {
         std::mem::swap(empty_tile_transform.as_mut(), selected_tile_transform.as_mut());
         std::mem::swap(empty_tile_index.as_mut(), selected_tile_index.as_mut());
-
-        let temp_tile = taquin.tiles[selected_tile_index.j as usize][selected_tile_index.i as usize];
-        taquin.tiles[selected_tile_index.j as usize][selected_tile_index.i as usize] = taquin.tiles[empty_tile_index.j as usize][empty_tile_index.i as usize];
-        taquin.tiles[empty_tile_index.j as usize][empty_tile_index.i as usize] = temp_tile;
+        taquin.swap_tiles(*selected_tile_index, *empty_tile_index);
     }
 
     if taquin.is_solved() {
@@ -183,14 +199,13 @@ fn move_selected_tile(
 fn randomize_tiles(
     mut taquin : ResMut<Taquin>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut tiles_query: Query<(&mut Transform, &mut TilePosition, Option<&EmptyTile>)>,
+    mut tiles_query: Query<(&mut Transform, &mut TilePosition)>,
 ) {
     if !keyboard_input.just_released(KeyCode::R) {
         return;
     }
 
     let mut rng = rand::thread_rng();
-    let mut empty_tile_position: Option<TilePosition> = None;
     for _i in 0..64 {
         let n1: usize = rng.gen_range(0..taquin.tiles_nb as usize);
         let n2: usize = rng.gen_range(0..taquin.tiles_nb as usize);
@@ -201,20 +216,11 @@ fn randomize_tiles(
         if let (Some(mut tile1), Some(mut tile2)) = (tiles_iter.nth(n1), tiles_iter.nth(n2)) {
             std::mem::swap(tile1.0.as_mut(), tile2.0.as_mut());
             std::mem::swap(tile1.1.as_mut(), tile2.1.as_mut());
-    
-            if tile1.2.is_some() {
-                empty_tile_position = Some(tile1.1.to_owned())
-            } else if tile2.2.is_some() {
-                empty_tile_position = Some(tile2.1.to_owned())
-            }
-            
-            let temp_tile = taquin.tiles[tile1.1.j as usize][tile1.1.i as usize];
-            taquin.tiles[tile1.1.j as usize][tile1.1.i as usize] = taquin.tiles[tile2.1.j as usize][tile2.1.i as usize];
-            taquin.tiles[tile2.1.j as usize][tile2.1.i as usize] = temp_tile;
+            taquin.swap_tiles(*tile1.1, *tile2.1);
         }
     }
 
-    if !taquin.is_solvable(empty_tile_position.unwrap()) {
+    if !taquin.is_solvable() {
         println!("PAS SOLVABLE");
     } else {
         println!("SOLVABLE");
@@ -225,7 +231,7 @@ fn randomize_tiles(
 mod tests {
     use bevy::prelude::*;
 
-    use crate::{Tile, Taquin, TilePosition};
+    use crate::{Tile, Taquin};
 
     #[test]
     fn test_is_solvable() {
@@ -236,14 +242,21 @@ mod tests {
             tiles_nb: 4,
             tiles: vec![vec![Tile(1), Tile(2)], vec![Tile(3), Tile(4)]]
         });
-        assert_eq!(app.world.resource::<Taquin>().is_solvable(TilePosition::new(1, 1)), true);
+        assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
 
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
             tiles: vec![vec![Tile(4), Tile(3)], vec![Tile(2), Tile(1)]]
         });
-        assert_eq!(app.world.resource::<Taquin>().is_solvable(TilePosition::new(0, 0)), true);
+        assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
+
+        app.world.insert_resource(Taquin {
+            size: 2,
+            tiles_nb: 4,
+            tiles: vec![vec![Tile(2), Tile(3)], vec![Tile(1), Tile(4)]]
+        });
+        assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
     }
 
     
@@ -256,13 +269,13 @@ mod tests {
             tiles_nb: 4,
             tiles: vec![vec![Tile(2), Tile(1)], vec![Tile(3), Tile(4)]]
         });
-        assert_eq!(app.world.resource::<Taquin>().is_solvable(TilePosition::new(1, 1)), false);
+        assert_eq!(app.world.resource::<Taquin>().is_solvable(), false);
 
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
             tiles: vec![vec![Tile(4), Tile(1)], vec![Tile(2), Tile(3)]]
         });
-        assert_eq!(app.world.resource::<Taquin>().is_solvable(TilePosition::new(0, 0)), false);
+        assert_eq!(app.world.resource::<Taquin>().is_solvable(), false);
     }
 }

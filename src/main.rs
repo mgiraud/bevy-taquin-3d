@@ -12,7 +12,6 @@ mod tile;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    println!("{:?}", args);
     
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
