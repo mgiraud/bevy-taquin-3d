@@ -2,7 +2,7 @@ use bevy::{prelude::*, animation::RepeatAnimation};
 
 use std::f32::consts::PI;
 
-use crate::taquin::{TaquinShuffled, Taquin};
+use crate::taquin::{TaquinShuffled, Taquin, TaquinSolved};
 
 pub struct GuiPlugin;
 
@@ -10,7 +10,7 @@ impl Plugin for GuiPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, setup_gui)
-            .add_systems(Update, taquin_shuffled_listener);
+            .add_systems(Update, (taquin_shuffled_listener, taquin_solved_listener));
     }
 }
 
@@ -19,20 +19,49 @@ pub struct MainMessage {
     shuffle_anim: Handle<AnimationClip>
 }
 
+#[derive(Component)]
+pub struct ShuffleKey;
+
+#[derive(Component)]
+pub struct ShuffleKeyTargetSize(f32);
+
+
 fn taquin_shuffled_listener(
     taquin: Res<Taquin>,
     mut events: EventReader<TaquinShuffled>,
-    mut main_message_query: Query<(&mut AnimationPlayer, &MainMessage)>
+    mut main_message_query: Query<(&mut AnimationPlayer, &MainMessage)>,
+    mut shuffle_key_query: Query<&mut Style, With<ShuffleKey>>
 ) {
     for _ in events.read() {
-        if let Ok((mut player, message)) = main_message_query.get_single_mut() {
+        let Ok((mut player, message)) = main_message_query.get_single_mut() else {
+            return;
+        };
+        if player.completions() == 0 || player.is_finished() {
             player.play(message.shuffle_anim.clone_weak()).set_repeat(RepeatAnimation::Count(3)).replay();
         }
         if !taquin.is_solvable() {
             println!("PAS SOLVABLE");
+            if let Ok(mut style) = shuffle_key_query.get_single_mut() {
+                style.display = Display::DEFAULT;
+            };
         } else {
             println!("SOLVABLE");
+            if let Ok(mut style) = shuffle_key_query.get_single_mut() {
+                style.display = Display::None;
+            };
         }
+    }
+}
+
+fn taquin_solved_listener(
+    mut events: EventReader<TaquinSolved>,
+    mut shuffle_key_query: Query<&mut Style, With<ShuffleKey>>
+) {
+    for _ in events.read() {
+        let Ok(mut style) = shuffle_key_query.get_single_mut() else {
+            return;
+        };
+        style.display = Display::DEFAULT;
     }
 }
 
@@ -40,14 +69,15 @@ fn setup_gui(
     mut commands: Commands, 
     _asset_server: Res<AssetServer>,
     mut animations: ResMut<Assets<AnimationClip>>,
+    asset_server: Res<AssetServer>
 ) {
 
-    let main_message_shuffle = Name::new("shuffle");
+    let main_message_name = Name::new("shuffle");
     let mut animation = AnimationClip::default();
     
     animation.add_curve_to_path(
         EntityPath {
-            parts: vec![main_message_shuffle.clone()],
+            parts: vec![main_message_name.clone()],
         },
         VariableCurve {
             keyframe_timestamps: vec![0.0, 0.05, 0.1, 0.15, 0.2],
@@ -61,6 +91,7 @@ fn setup_gui(
         },
     );
     let shuffle_anim = animations.add(animation);
+    let animation_player = AnimationPlayer::default();
 
     commands
     .spawn(NodeBundle {
@@ -74,7 +105,6 @@ fn setup_gui(
         ..default()
     })
     .with_children(|parent| {
-        // left vertical fill (border)
         parent
             .spawn(NodeBundle {
                 style: Style {
@@ -88,24 +118,34 @@ fn setup_gui(
                 ..default()
             }).with_children(|parent| {
                 parent.spawn((
-                    // Create a TextBundle that has a Text with a single section.
                     TextBundle::from_section(
-                        // Accepts a `String` or any type that converts into a `String`, such as `&str`
                         "Taquin",
                         TextStyle {
-                            // This font is loaded and will be used instead of the default font.
                             font_size: 100.0,
                             color: Color::WHITE,
                             ..default()
                         },
-                    ) // Set the alignment of the Text
+                    )
                     .with_text_alignment(TextAlignment::Center)
-                    // Set the style of the TextBundle itself.
                     .with_style(Style {
                         position_type: PositionType::Relative,
                         ..default()
                     })
-                , MainMessage { shuffle_anim }, main_message_shuffle));
+                , MainMessage { shuffle_anim }, main_message_name, animation_player));
+
+                parent.spawn((
+                    NodeBundle {
+                        style: Style {
+                            width: Val::Px(100.0),
+                            height: Val::Px(100.0),
+                            margin: UiRect::left(Val::VMin(5.)),
+                            ..default()
+                        },
+                        background_color: Color::WHITE.into(),
+                        ..default()
+                    },
+                    UiImage::new(asset_server.load("textures/icons/shuffle_key.png")),
+                    ShuffleKey));
             });
         });
 }

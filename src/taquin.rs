@@ -11,6 +11,7 @@ impl Plugin for TaquinPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_event::<TaquinShuffled>()
+            .add_event::<TaquinSolved>()
             .insert_resource(Taquin::new(self.size))
             .add_systems(Update, move_tile_selection.run_if(in_state(AppState::Running)))
             .add_systems(Update, (move_selected_tile, shuffle).run_if(in_state(AppState::Running).and_then(not(any_with_component::<TileLerp>()))));
@@ -26,6 +27,9 @@ pub struct Taquin {
 
 #[derive(Event, Default)]
 pub struct TaquinShuffled;
+
+#[derive(Event, Default)]
+pub struct TaquinSolved;
 
 impl Taquin {
     pub fn new(size: i8) -> Self {
@@ -136,7 +140,9 @@ impl Taquin {
             .flatten()
             .collect::<Vec<&TileValue>>()
             .chunks(2)
-            .filter(|a| { a[0] > a[1] })
+            .filter(|a| {
+                a.get(1).is_some() && a[0] > a[1] 
+            })
             .count() == 0
     }
 
@@ -180,6 +186,7 @@ fn move_selected_tile(
     mut empty_tile_query: Query<(&mut Transform, &mut TileCoordinates), (With<EmptyTile>, Without<TileSelected>)>,
     keyboard_input: Res<Input<KeyCode>>,
     mut taquin : ResMut<Taquin>,
+    mut shuffle_events: EventWriter<TaquinSolved>,
 ) {
     if !keyboard_input.just_released(KeyCode::Space) {
         return;
@@ -199,7 +206,7 @@ fn move_selected_tile(
     }
 
     if taquin.is_solved() {
-        println!("SOLVED !");
+        shuffle_events.send_default();
     }
 }
 
@@ -213,6 +220,30 @@ fn shuffle(
         return;
     }
 
+    // let mut rng = rand::thread_rng();
+    // for _i in 0..64 {
+    //     let n1: usize = rng.gen_range(0..taquin.tiles_nb as usize);
+    //     let n2: usize = rng.gen_range(0..taquin.tiles_nb as usize);
+    //     if n1 == n2 {
+    //         continue;
+    //     }
+    //     let mut tiles_iter = tiles_query.iter_mut();
+    //     if let (Some(mut tile1), Some(mut tile2)) = (tiles_iter.nth(n1), tiles_iter.nth(n2)) {
+    //         std::mem::swap(tile1.0.as_mut(), tile2.0.as_mut());
+    //         std::mem::swap(tile1.1.as_mut(), tile2.1.as_mut());
+    //         taquin.swap_tiles(*tile1.1, *tile2.1);
+    //     }
+    // }
+
+    loop {
+        if do_shuffle(taquin.as_mut(), &mut tiles_query) == true {
+            shuffle_events.send_default();
+            break;
+        }
+    }
+}
+
+fn do_shuffle(mut taquin : &mut Taquin, mut tiles_query: &mut Query<(&mut Transform, &mut TileCoordinates)>) -> bool {
     let mut rng = rand::thread_rng();
     for _i in 0..64 {
         let n1: usize = rng.gen_range(0..taquin.tiles_nb as usize);
@@ -228,7 +259,7 @@ fn shuffle(
         }
     }
 
-    shuffle_events.send_default();
+    !taquin.is_solved() && taquin.is_solvable()
 }
 
 #[cfg(test)]
