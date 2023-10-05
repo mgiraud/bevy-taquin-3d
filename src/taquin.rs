@@ -139,7 +139,7 @@ impl Taquin {
         self.tiles.iter()
             .flatten()
             .collect::<Vec<&TileValue>>()
-            .chunks(2)
+            .windows(2)
             .filter(|a| {
                 a.get(1).is_some() && a[0] > a[1] 
             })
@@ -186,7 +186,7 @@ fn move_selected_tile(
     mut empty_tile_query: Query<(&mut Transform, &mut TileCoordinates), (With<EmptyTile>, Without<TileSelected>)>,
     keyboard_input: Res<Input<KeyCode>>,
     mut taquin : ResMut<Taquin>,
-    mut shuffle_events: EventWriter<TaquinSolved>,
+    mut solved_events: EventWriter<TaquinSolved>,
 ) {
     if !keyboard_input.just_released(KeyCode::Space) {
         return;
@@ -206,7 +206,8 @@ fn move_selected_tile(
     }
 
     if taquin.is_solved() {
-        shuffle_events.send_default();
+        println!("SOLVED");
+        solved_events.send_default();
     }
 }
 
