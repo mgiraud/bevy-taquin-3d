@@ -36,54 +36,54 @@ impl Taquin {
         Self { size, tiles_nb: (size * size) as usize, tiles: vec![] }
     }
 
-    pub fn get_next_selection_position(&self, current_position: &TileCoordinates, direction: KeyCode) -> TileCoordinates {
-        let mut position = *current_position;
+    pub fn get_next_selection_coordinates(&self, current_coordinates: &TileCoordinates, direction: KeyCode) -> TileCoordinates {
+        let mut coordinates = *current_coordinates;
         match direction {
             KeyCode::Left => {
                 loop {
-                    position.i -= 1;
-                    if position.i < 0 {
-                        position.i = self.size - 1;
+                    coordinates.i -= 1;
+                    if coordinates.i < 0 {
+                        coordinates.i = self.size - 1;
                     }
-                    if !self.tiles[position.j as usize][position.i as usize].is_empty(self.size) {
-                        return position
+                    if !self.tiles[coordinates.j as usize][coordinates.i as usize].is_empty(self.size) {
+                        return coordinates
                     }
                 }
             },
             KeyCode::Right => {
                 loop {
-                    position.i += 1;
-                    if position.i >= self.size {
-                        position.i = 0;
+                    coordinates.i += 1;
+                    if coordinates.i >= self.size {
+                        coordinates.i = 0;
                     }
-                    if !self.tiles[position.j as usize][position.i as usize].is_empty(self.size) {
-                        return position
+                    if !self.tiles[coordinates.j as usize][coordinates.i as usize].is_empty(self.size) {
+                        return coordinates
                     }
                 }
             },
             KeyCode::Up => {
                 loop {
-                    position.j -= 1;
-                    if position.j < 0 {
-                        position.j = self.size - 1;
+                    coordinates.j -= 1;
+                    if coordinates.j < 0 {
+                        coordinates.j = self.size - 1;
                     }
-                    if !self.tiles[position.j as usize][position.i as usize].is_empty(self.size) {
-                        return position
+                    if !self.tiles[coordinates.j as usize][coordinates.i as usize].is_empty(self.size) {
+                        return coordinates
                     }
                 }
             },
             KeyCode::Down => {
                 loop {
-                    position.j += 1;
-                    if position.j >= self.size {
-                        position.j = 0;
+                    coordinates.j += 1;
+                    if coordinates.j >= self.size {
+                        coordinates.j = 0;
                     }
-                    if !self.tiles[position.j as usize][position.i as usize].is_empty(self.size) {
-                        return position
+                    if !self.tiles[coordinates.j as usize][coordinates.i as usize].is_empty(self.size) {
+                        return coordinates
                     }
                 }
             }
-            _ => position
+            _ => coordinates
         }
     }
 
@@ -103,7 +103,7 @@ impl Taquin {
         return inversion_counter;
     }
 
-    pub fn get_empty_tile_position(&self) -> TileCoordinates
+    pub fn get_empty_tile_coordinates(&self) -> TileCoordinates
     {
         let mut ret_i = 0;
         let mut ret_j = 0;
@@ -122,13 +122,13 @@ impl Taquin {
 
     pub fn is_solvable(&self) -> bool {
         let inversion_count = self.get_inversion_count();
-        let empty_tile_position = self.get_empty_tile_position();
+        let empty_tile_coordinates = self.get_empty_tile_coordinates();
 
         if self.size & 1 == 1 {
-            return empty_tile_position.j & 1 == 0;
+            return empty_tile_coordinates.j & 1 == 0;
         }
     
-        if empty_tile_position.j & 1 == 1 {
+        if empty_tile_coordinates.j & 1 == 1 {
             return inversion_count & 1 == 0;
         }
     
@@ -160,24 +160,24 @@ fn move_tile_selection(
     mut commands: Commands,
     mut keyboard_input_events: EventReader<KeyboardInput>
 ) {
-    let Ok((selected_tile_entity, selected_tile_position)) = selected_tile_query.get_single() else {
+    let Ok((selected_tile_entity, selected_tile_coordinates)) = selected_tile_query.get_single() else {
         return;
     };
 
-    for event in keyboard_input_events.read() {
-        let (Some(key_code), ButtonState::Released) = (event.key_code, event.state) else {
-            continue;
-        };
-        let selected_tile_new_position = taquin.get_next_selection_position(selected_tile_position, key_code);
-        if selected_tile_new_position != *selected_tile_position {
-            for (tile_entity, tile_position) in tiles_query.iter() {
-                if *tile_position == selected_tile_new_position {
-                    commands.entity(selected_tile_entity).remove::<TileSelected>();
-                    commands.entity(tile_entity).insert(TileSelected);
-                }
+    let Some(KeyboardInput {key_code: Some(key_code), state : ButtonState::Released, ..}) = keyboard_input_events.read().next() else {
+        return;
+    };
+
+    let selected_tile_new_coordinates = taquin.get_next_selection_coordinates(selected_tile_coordinates, *key_code);
+    if selected_tile_new_coordinates != *selected_tile_coordinates {
+        for (tile_entity, tile_coordinates) in tiles_query.iter() {
+            if *tile_coordinates == selected_tile_new_coordinates {
+                commands.entity(selected_tile_entity).remove::<TileSelected>();
+                commands.entity(tile_entity).insert(TileSelected);
             }
         }
     }
+
 }
 
 fn move_selected_tile(
@@ -221,21 +221,6 @@ fn shuffle(
         return;
     }
 
-    // let mut rng = rand::thread_rng();
-    // for _i in 0..64 {
-    //     let n1: usize = rng.gen_range(0..taquin.tiles_nb as usize);
-    //     let n2: usize = rng.gen_range(0..taquin.tiles_nb as usize);
-    //     if n1 == n2 {
-    //         continue;
-    //     }
-    //     let mut tiles_iter = tiles_query.iter_mut();
-    //     if let (Some(mut tile1), Some(mut tile2)) = (tiles_iter.nth(n1), tiles_iter.nth(n2)) {
-    //         std::mem::swap(tile1.0.as_mut(), tile2.0.as_mut());
-    //         std::mem::swap(tile1.1.as_mut(), tile2.1.as_mut());
-    //         taquin.swap_tiles(*tile1.1, *tile2.1);
-    //     }
-    // }
-
     loop {
         if do_shuffle(taquin.as_mut(), &mut tiles_query) == true {
             shuffle_events.send_default();
@@ -244,7 +229,7 @@ fn shuffle(
     }
 }
 
-fn do_shuffle(mut taquin : &mut Taquin, mut tiles_query: &mut Query<(&mut Transform, &mut TileCoordinates)>) -> bool {
+fn do_shuffle(taquin : &mut Taquin, tiles_query: &mut Query<(&mut Transform, &mut TileCoordinates)>) -> bool {
     let mut rng = rand::thread_rng();
     for _i in 0..64 {
         let n1: usize = rng.gen_range(0..taquin.tiles_nb as usize);
