@@ -12,6 +12,7 @@ impl Plugin for TaquinPlugin {
         app
             .add_event::<TaquinShuffled>()
             .add_event::<TaquinSolved>()
+            .add_event::<TileMoved>()
             .insert_resource(Taquin::new(self.size))
             .add_systems(Update, move_tile_selection.run_if(in_state(AppState::Running)))
             .add_systems(Update, (move_selected_tile, shuffle).run_if(in_state(AppState::Running).and_then(not(any_with_component::<TileLerp>()))));
@@ -30,6 +31,9 @@ pub struct TaquinShuffled;
 
 #[derive(Event, Default)]
 pub struct TaquinSolved;
+
+#[derive(Event, Default)]
+pub struct TileMoved;
 
 impl Taquin {
     pub fn new(size: i8) -> Self {
@@ -125,7 +129,7 @@ impl Taquin {
         let empty_tile_coordinates = self.get_empty_tile_coordinates();
 
         if self.size & 1 == 1 {
-            return empty_tile_coordinates.j & 1 == 0;
+            return inversion_count & 1 == 0;
         }
     
         if empty_tile_coordinates.j & 1 == 1 {
@@ -187,6 +191,7 @@ fn move_selected_tile(
     keyboard_input: Res<Input<KeyCode>>,
     mut taquin : ResMut<Taquin>,
     mut solved_events: EventWriter<TaquinSolved>,
+    mut tile_moved_events: EventWriter<TileMoved>,
 ) {
     if !keyboard_input.just_released(KeyCode::Space) {
         return;
@@ -203,10 +208,10 @@ fn move_selected_tile(
         taquin.swap_tiles(*selected_tile_coords, *empty_tile_coords);
         commands.entity(entity).insert(TileLerp(empty_tile_transform.translation));
         empty_tile_transform.translation = selected_tile_transform.translation;
+        tile_moved_events.send_default();
     }
 
     if taquin.is_solved() {
-        println!("SOLVED");
         solved_events.send_default();
     }
 }
@@ -231,7 +236,7 @@ fn shuffle(
 
 fn do_shuffle(taquin : &mut Taquin, tiles_query: &mut Query<(&mut Transform, &mut TileCoordinates)>) -> bool {
     let mut rng = rand::thread_rng();
-    for _i in 0..64 {
+    for _i in 0..taquin.tiles_nb.pow(2) {
         let n1: usize = rng.gen_range(0..taquin.tiles_nb as usize);
         let n2: usize = rng.gen_range(0..taquin.tiles_nb as usize);
         if n1 == n2 {

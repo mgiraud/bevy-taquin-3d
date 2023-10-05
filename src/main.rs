@@ -22,7 +22,7 @@ fn main() {
         .add_plugins(HookPlugin)
         .add_plugins(TilePlugin)
         .add_plugins(GuiPlugin)
-        .add_plugins(TaquinPlugin {size: args.get(1).unwrap_or(&"2".to_string()).parse::<i8>().unwrap_or(2)})
+        .add_plugins(TaquinPlugin {size: args.get(1).unwrap_or(&"3".to_string()).parse::<i8>().unwrap_or(3)})
         .add_state::<AppState>()
         .init_resource::<Markers>()
         .add_systems(OnEnter(AppState::Setup), setup_scene)
