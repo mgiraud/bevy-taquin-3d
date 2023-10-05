@@ -7,9 +7,9 @@ pub struct TilePlugin;
 
 impl Plugin for TilePlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.
-            add_systems(Update, (
-                on_tile_selected_changed, on_tile_selected_removal
+        app
+            .add_systems(Update, (
+                on_tile_selected_changed, on_tile_selected_removal, move_tile
             ).run_if(in_state(AppState::Running)));
     }
 }
@@ -18,9 +18,9 @@ impl Plugin for TilePlugin {
 pub struct EmptyTile;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub struct Tile(pub i8);
+pub struct TileValue(pub i8);
 
-impl Tile {
+impl TileValue {
     pub fn is_empty(&self, taquin_size: i8) -> bool {
         return self.0 == taquin_size * taquin_size;
     }
@@ -30,27 +30,27 @@ impl Tile {
 pub struct TileSelected;
 
 #[derive(Component, Debug, PartialEq, Clone, Copy)]
-pub struct TilePosition {
+pub struct TileCoordinates {
     pub i: i8,
     pub j: i8
 }
 
-impl TilePosition {
+impl TileCoordinates {
     pub fn new(i: i8, j:i8) -> Self {
         Self {i, j}
     }
 
-    pub fn is_neighbour_of(&self, other: &TilePosition)-> bool {
+    pub fn is_neighbour_of(&self, other: &TileCoordinates)-> bool {
         self.get_neighbours().contains(other)
     }
 
-    fn get_neighbours(self) -> Vec<TilePosition>
+    fn get_neighbours(self) -> Vec<TileCoordinates>
     {
         vec![self + (1, 0), self + (0, 1), self + (-1, 0), self + (0, -1)]
     }
 }
 
-impl Add<(i8, i8)> for TilePosition {
+impl Add<(i8, i8)> for TileCoordinates {
     type Output = Self;
 
     fn add(self, other: (i8, i8)) -> Self {
@@ -59,6 +59,17 @@ impl Add<(i8, i8)> for TilePosition {
             j: self.j + other.1,
         }
     }
+}
+
+#[derive(Component, Debug)]
+pub struct TileLerp(pub Vec3);
+
+#[derive(Component, Debug, Default)]
+pub struct TileAnimations {
+    pub up: Handle<AnimationClip>,
+    pub right: Handle<AnimationClip>,
+    pub down: Handle<AnimationClip>,
+    pub left: Handle<AnimationClip>,
 }
 
 fn on_tile_selected_changed(
@@ -82,5 +93,20 @@ fn on_tile_selected_removal(
                 material.emissive = Color::BLACK;
             } 
         }
+    }
+}
+
+fn move_tile(
+    mut commands: Commands,
+    mut tile_query: Query<(Entity, &mut Transform, &TileLerp)>, 
+) {
+    let Ok((entity, mut transform, tile_lerp)) = tile_query.get_single_mut() else {
+        return;
+    };
+
+    transform.translation = transform.translation.lerp(tile_lerp.0, 0.1);
+
+    if transform.translation.abs_diff_eq(tile_lerp.0, 0.01) {
+        commands.entity(entity).remove::<TileLerp>();
     }
 }

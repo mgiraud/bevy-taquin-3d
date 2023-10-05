@@ -1,6 +1,6 @@
 use bevy::{prelude::*, animation::RepeatAnimation};
 
-use std::f32::consts::{TAU, PI};
+use std::f32::consts::PI;
 
 use crate::taquin::{TaquinShuffled, Taquin};
 
@@ -21,10 +21,8 @@ pub struct MainMessage {
 
 fn taquin_shuffled_listener(
     taquin: Res<Taquin>,
-    animations: ResMut<Assets<AnimationClip>>,
     mut events: EventReader<TaquinShuffled>,
-    mut main_message_query: Query<(&mut AnimationPlayer, &MainMessage)>,
-    timer: Res<Time>,
+    mut main_message_query: Query<(&mut AnimationPlayer, &MainMessage)>
 ) {
     for _ in events.read() {
         if let Ok((mut player, message)) = main_message_query.get_single_mut() {
@@ -63,8 +61,6 @@ fn setup_gui(
         },
     );
     let shuffle_anim = animations.add(animation);
-
-    let mut player = AnimationPlayer::default();
 
     commands
     .spawn(NodeBundle {
@@ -109,7 +105,7 @@ fn setup_gui(
                         position_type: PositionType::Relative,
                         ..default()
                     })
-                , MainMessage { shuffle_anim }, main_message_shuffle, player));
+                , MainMessage { shuffle_anim }, main_message_shuffle));
             });
         });
 }

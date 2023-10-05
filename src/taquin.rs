@@ -1,7 +1,7 @@
 use bevy::{prelude::*, input::{keyboard::KeyboardInput, ButtonState}};
 use rand::Rng;
 
-use crate::{tile::{TilePosition, Tile, EmptyTile, TileSelected}, AppState};
+use crate::{tile::{TileCoordinates, TileValue, EmptyTile, TileSelected, TileLerp}, AppState};
 
 pub struct TaquinPlugin {
     pub(crate) size: i8
@@ -12,7 +12,8 @@ impl Plugin for TaquinPlugin {
         app
             .add_event::<TaquinShuffled>()
             .insert_resource(Taquin::new(self.size))
-            .add_systems(Update, (move_tile_selection,  move_selected_tile, shuffle).run_if(in_state(AppState::Running)));
+            .add_systems(Update, move_tile_selection.run_if(in_state(AppState::Running)))
+            .add_systems(Update, (move_selected_tile, shuffle).run_if(in_state(AppState::Running).and_then(not(any_with_component::<TileLerp>()))));
     }
 }
 
@@ -20,7 +21,7 @@ impl Plugin for TaquinPlugin {
 pub struct Taquin {
     pub size: i8,
     pub tiles_nb: usize,
-    pub tiles: Vec<Vec<Tile>>
+    pub tiles: Vec<Vec<TileValue>>
 }
 
 #[derive(Event, Default)]
@@ -31,7 +32,7 @@ impl Taquin {
         Self { size, tiles_nb: (size * size) as usize, tiles: vec![] }
     }
 
-    pub fn get_next_selection_position(&self, current_position: &TilePosition, direction: KeyCode) -> TilePosition {
+    pub fn get_next_selection_position(&self, current_position: &TileCoordinates, direction: KeyCode) -> TileCoordinates {
         let mut position = *current_position;
         match direction {
             KeyCode::Left => {
@@ -87,7 +88,7 @@ impl Taquin {
     ) -> usize
     {
         let mut inversion_counter: usize = 0;
-        let flat_tiles = self.tiles.iter().flatten().collect::<Vec<&Tile>>();
+        let flat_tiles = self.tiles.iter().flatten().collect::<Vec<&TileValue>>();
         (0..(self.tiles_nb - 1)).for_each(|i| {
             ((i + 1)..self.tiles_nb).for_each(|j| {
                 if flat_tiles[i].0 != self.tiles_nb as i8 && flat_tiles[j].0 != self.tiles_nb as i8 && flat_tiles[i] > flat_tiles[j] {
@@ -98,7 +99,7 @@ impl Taquin {
         return inversion_counter;
     }
 
-    pub fn get_empty_tile_position(&self) -> TilePosition
+    pub fn get_empty_tile_position(&self) -> TileCoordinates
     {
         let mut ret_i = 0;
         let mut ret_j = 0;
@@ -112,7 +113,7 @@ impl Taquin {
            })
         });
 
-        TilePosition::new(ret_i as i8, ret_j as i8)
+        TileCoordinates::new(ret_i as i8, ret_j as i8)
     }
 
     pub fn is_solvable(&self) -> bool {
@@ -133,13 +134,13 @@ impl Taquin {
     pub fn is_solved(&self) -> bool {
         self.tiles.iter()
             .flatten()
-            .collect::<Vec<&Tile>>()
+            .collect::<Vec<&TileValue>>()
             .chunks(2)
             .filter(|a| { a[0] > a[1] })
             .count() == 0
     }
 
-    pub fn swap_tiles(&mut self, a: TilePosition, b: TilePosition) {
+    pub fn swap_tiles(&mut self, a: TileCoordinates, b: TileCoordinates) {
         let temp_tile = self.tiles[a.j as usize][a.i as usize];
         self.tiles[a.j as usize][a.i as usize] = self.tiles[b.j as usize][b.i as usize];
         self.tiles[b.j as usize][b.i as usize] = temp_tile;
@@ -147,8 +148,8 @@ impl Taquin {
 }
 
 fn move_tile_selection(
-    selected_tile_query: Query<(Entity, &TilePosition), With<TileSelected>>,
-    tiles_query: Query<(Entity, &TilePosition), Without<TileSelected>>,
+    selected_tile_query: Query<(Entity, &TileCoordinates), With<TileSelected>>,
+    tiles_query: Query<(Entity, &TileCoordinates), Without<TileSelected>>,
     taquin : Res<Taquin>,
     mut commands: Commands,
     mut keyboard_input_events: EventReader<KeyboardInput>
@@ -174,25 +175,27 @@ fn move_tile_selection(
 }
 
 fn move_selected_tile(
-    mut selected_tile_query: Query<(&mut Transform, &mut TilePosition), (With<TileSelected>, Without<EmptyTile>)>,
-    mut empty_tile_query: Query<(&mut Transform, &mut TilePosition), (With<EmptyTile>, Without<TileSelected>)>,
+    mut commands: Commands,
+    mut selected_tile_query: Query<(Entity, &Transform, &mut TileCoordinates), (With<TileSelected>, Without<EmptyTile>)>,
+    mut empty_tile_query: Query<(&mut Transform, &mut TileCoordinates), (With<EmptyTile>, Without<TileSelected>)>,
     keyboard_input: Res<Input<KeyCode>>,
     mut taquin : ResMut<Taquin>,
 ) {
     if !keyboard_input.just_released(KeyCode::Space) {
         return;
     }
-    let Ok((mut empty_tile_transform, mut empty_tile_index)) = empty_tile_query.get_single_mut() else {
+    let Ok((mut empty_tile_transform, mut empty_tile_coords)) = empty_tile_query.get_single_mut() else {
         return;
     };
-    let Ok((mut selected_tile_transform, mut selected_tile_index)) = selected_tile_query.get_single_mut() else {
+    let Ok((entity, selected_tile_transform, mut selected_tile_coords)) = selected_tile_query.get_single_mut() else {
         return;
     };
 
-    if selected_tile_index.is_neighbour_of(empty_tile_index.as_ref()) {
-        std::mem::swap(empty_tile_transform.as_mut(), selected_tile_transform.as_mut());
-        std::mem::swap(empty_tile_index.as_mut(), selected_tile_index.as_mut());
-        taquin.swap_tiles(*selected_tile_index, *empty_tile_index);
+    if selected_tile_coords.is_neighbour_of(empty_tile_coords.as_ref()) {
+        std::mem::swap(empty_tile_coords.as_mut(), selected_tile_coords.as_mut());
+        taquin.swap_tiles(*selected_tile_coords, *empty_tile_coords);
+        commands.entity(entity).insert(TileLerp(empty_tile_transform.translation));
+        empty_tile_transform.translation = selected_tile_transform.translation;
     }
 
     if taquin.is_solved() {
@@ -204,7 +207,7 @@ fn shuffle(
     mut taquin : ResMut<Taquin>,
     mut shuffle_events: EventWriter<TaquinShuffled>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut tiles_query: Query<(&mut Transform, &mut TilePosition)>,
+    mut tiles_query: Query<(&mut Transform, &mut TileCoordinates)>,
 ) {
     if !keyboard_input.just_released(KeyCode::R) {
         return;
@@ -232,7 +235,7 @@ fn shuffle(
 mod tests {
     use bevy::prelude::*;
 
-    use crate::{Tile, Taquin};
+    use crate::{TileValue, Taquin};
 
     #[test]
     fn test_is_solvable() {
@@ -241,21 +244,21 @@ mod tests {
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![Tile(1), Tile(2)], vec![Tile(3), Tile(4)]]
+            tiles: vec![vec![TileValue(1), TileValue(2)], vec![TileValue(3), TileValue(4)]]
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
 
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![Tile(4), Tile(3)], vec![Tile(2), Tile(1)]]
+            tiles: vec![vec![TileValue(4), TileValue(3)], vec![TileValue(2), TileValue(1)]]
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
 
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![Tile(2), Tile(3)], vec![Tile(1), Tile(4)]]
+            tiles: vec![vec![TileValue(2), TileValue(3)], vec![TileValue(1), TileValue(4)]]
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
     }
@@ -268,14 +271,14 @@ mod tests {
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![Tile(2), Tile(1)], vec![Tile(3), Tile(4)]]
+            tiles: vec![vec![TileValue(2), TileValue(1)], vec![TileValue(3), TileValue(4)]]
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), false);
 
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![Tile(4), Tile(1)], vec![Tile(2), Tile(3)]]
+            tiles: vec![vec![TileValue(4), TileValue(1)], vec![TileValue(2), TileValue(3)]]
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), false);
     }

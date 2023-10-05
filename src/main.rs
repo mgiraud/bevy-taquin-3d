@@ -2,15 +2,17 @@ use std::{f32::consts::PI, env};
 
 use bevy::{prelude::*, render::{render_resource::{TextureFormat, TextureDimension, Extent3d}, mesh::VertexAttributeValues}};
 use gui::GuiPlugin;
+use marker::{Markers, Marker, setup_markers};
 use scene_hook::{SceneHook, HookPlugin};
 use taquin::{Taquin, TaquinPlugin};
-use tile::{EmptyTile, TilePosition, Tile, TileSelected, TilePlugin};
+use tile::{EmptyTile, TileCoordinates, TileValue, TileSelected, TilePlugin};
 
 
 mod scene_hook;
 mod taquin;
 mod tile;
 mod gui;
+mod marker;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -31,7 +33,7 @@ fn main() {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, States)]
-enum AppState {
+pub enum AppState {
     #[default]
     Setup,
     SetupTiles,
@@ -64,32 +66,6 @@ impl FromWorld for TaquinSpritesLoaded {
         TaquinSpritesLoaded { bevy: false, rust: false }
     }
 }
-
-#[derive(Component)]
-struct Marker;
-
-#[derive(Resource, Default)]
-pub struct Markers {
-    pub tl : Vec3,
-    pub tr : Vec3,
-    pub bl : Vec3,
-    pub br : Vec3,
-}
-
-impl Markers {
-    fn is_ready(&self) -> bool {
-        self.tl != Vec3::default() && self.tr != Vec3::default() && self.bl != Vec3::default() && self.br != Vec3::default()
-    }
-
-    fn inner_width(&self) -> f32 {
-        self.tr.x - self.tl.x
-    }
-
-    fn inner_height(&self) -> f32 {
-        self.tr.y - self.br.y
-    }
-}
-
 
 fn setup_scene(
     mut commands: Commands,
@@ -144,21 +120,6 @@ fn setup_scene(
     });
 }
 
-fn setup_markers(
-    mut markers: ResMut<Markers>,
-    query: Query<(&Name, &GlobalTransform), With<Marker>>
-) {
-    for (name, global_transform) in query.iter() {
-        match name.as_str() {
-            "TL" => markers.tl = global_transform.translation(),
-            "TR" => markers.tr = global_transform.translation(),
-            "BL" => markers.bl = global_transform.translation(),
-            "BR" => markers.br = global_transform.translation(),
-            _ => (),
-        };
-    }
-}
-
 
 fn check_setup_finished(
     taquin_sprite_folder: ResMut<TaquinSprites>,
@@ -202,9 +163,11 @@ fn setup_tiles(
                 y: origin.y - j as f32 * tile_height - tile_height / 2., 
                 z: 0.75
             };
+            let value = j * taquin.size + i + 1;
+            let name = Name::new("Tile-".to_string() + value.to_string().as_str());
             if i == taquin.size - 1 && j == taquin.size - 1 {
-                commands.spawn((Transform::from_translation(translation), EmptyTile, TilePosition::new(i, j)));
-                return Tile(taquin.size * taquin.size);
+                commands.spawn((Transform::from_translation(translation), EmptyTile, TileCoordinates::new(i, j)));
+                return TileValue(taquin.size * taquin.size);
             }
             let mut block = Mesh::from(shape::Quad::new(Vec2::new(tile_width, tile_height)));
             if let Some(attr) = block.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
@@ -216,23 +179,27 @@ fn setup_tiles(
                 ]);
             }
             let mut tile_command = commands.spawn((PbrBundle {
-                mesh: meshes.add(block),
-                material: materials.add(StandardMaterial {
-                    base_color_texture: Some(taquin_sprite_handles.bevy.clone()),
-                    double_sided: true,
-                    cull_mode: None,
+                    mesh: meshes.add(block),
+                    material: materials.add(StandardMaterial {
+                        base_color_texture: Some(taquin_sprite_handles.bevy.clone()),
+                        double_sided: true,
+                        cull_mode: None,
+                        ..default()
+                    }),
+                    transform: Transform::from_translation(translation),
                     ..default()
-                }),
-                transform: Transform::from_translation(translation),
-                ..default()
-            }, TilePosition::new(i, j)));
+                }, 
+                TileCoordinates::new(i, j), 
+                name,
+                AnimationPlayer::default(), 
+            ));
             if i == 0 && j == 0 {
                 tile_command.insert(TileSelected);
             }
-            Tile(j * taquin.size + i + 1)
+            TileValue(value)
         }).collect()
     }).collect();
-    
+
     next_state.set(AppState::Running);
 }
 
