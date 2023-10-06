@@ -14,16 +14,10 @@ impl Plugin for TaquinPlugin {
             .add_event::<TaquinSolved>()
             .add_event::<TileMoved>()
             .insert_resource(Taquin::new(self.size))
-            .add_systems(Update, move_tile_selection.run_if(in_state(AppState::Running)))
+            .init_resource::<TaquinSoundHandles>()
+            .add_systems(Update, (move_tile_selection, on_taquin_solved_play_tada).run_if(in_state(AppState::Running)))
             .add_systems(Update, (move_selected_tile, shuffle).run_if(in_state(AppState::Running).and_then(not(any_with_component::<TileLerp>()))));
     }
-}
-
-#[derive(Resource, Default)]
-pub struct Taquin {
-    pub size: i8,
-    pub tiles_nb: usize,
-    pub tiles: Vec<Vec<TileValue>>
 }
 
 #[derive(Event, Default)]
@@ -34,6 +28,28 @@ pub struct TaquinSolved;
 
 #[derive(Event, Default)]
 pub struct TileMoved;
+
+#[derive(Resource)]
+struct TaquinSoundHandles {
+    tada: Handle<AudioSource>,
+}
+
+impl FromWorld for TaquinSoundHandles {
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.resource::<AssetServer>();
+        Self {
+            tada: asset_server.load("sounds/tada.ogg"),
+        }
+    }
+}
+
+
+#[derive(Resource, Default)]
+pub struct Taquin {
+    pub size: i8,
+    pub tiles_nb: usize,
+    pub tiles: Vec<Vec<TileValue>>
+}
 
 impl Taquin {
     pub fn new(size: i8) -> Self {
@@ -251,6 +267,21 @@ fn do_shuffle(taquin : &mut Taquin, tiles_query: &mut Query<(&mut Transform, &mu
     }
 
     !taquin.is_solved() && taquin.is_solvable()
+}
+
+fn on_taquin_solved_play_tada(
+    mut commands: Commands,
+    mut solved_event_reader: EventReader<TaquinSolved>,
+    handles: Res<TaquinSoundHandles>
+) {
+    if solved_event_reader.read().next().is_none() {
+        return;
+    }
+
+    commands.spawn(AudioBundle {
+        source: handles.tada.clone(),
+        settings: PlaybackSettings::DESPAWN,
+    });
 }
 
 #[cfg(test)]
