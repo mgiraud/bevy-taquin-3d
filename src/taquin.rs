@@ -15,7 +15,7 @@ impl Plugin for TaquinPlugin {
             .add_event::<TileMoved>()
             .insert_resource(Taquin::new(self.size))
             .init_resource::<TaquinSoundHandles>()
-            .add_systems(Update, (move_tile_selection, on_taquin_solved_play_tada).run_if(in_state(AppState::Running)))
+            .add_systems(Update, (move_tile_selection, on_taquin_solved_play_tada.run_if(on_event::<TaquinSolved>())).run_if(in_state(AppState::Running)))
             .add_systems(Update, (move_selected_tile, shuffle).run_if(in_state(AppState::Running).and_then(not(any_with_component::<TileLerp>()))));
     }
 }
@@ -42,7 +42,6 @@ impl FromWorld for TaquinSoundHandles {
         }
     }
 }
-
 
 #[derive(Resource, Default)]
 pub struct Taquin {
@@ -152,7 +151,7 @@ impl Taquin {
             return inversion_count & 1 == 0;
         }
     
-        return inversion_count & 1 == 1;
+        inversion_count & 1 == 1
     }
 
     pub fn is_solved(&self) -> bool {
@@ -271,13 +270,8 @@ fn do_shuffle(taquin : &mut Taquin, tiles_query: &mut Query<(&mut Transform, &mu
 
 fn on_taquin_solved_play_tada(
     mut commands: Commands,
-    mut solved_event_reader: EventReader<TaquinSolved>,
     handles: Res<TaquinSoundHandles>
 ) {
-    if solved_event_reader.read().next().is_none() {
-        return;
-    }
-
     commands.spawn(AudioBundle {
         source: handles.tada.clone(),
         settings: PlaybackSettings::DESPAWN,

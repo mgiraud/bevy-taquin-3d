@@ -10,7 +10,11 @@ impl Plugin for GuiPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, setup_gui)
-            .add_systems(Update, (taquin_shuffled_listener, taquin_solved_listener, tile_moved_listener));
+            .add_systems(Update, (
+                taquin_shuffled_listener.run_if(on_event::<TaquinShuffled>()),
+                on_taquin_solved_reset_gui.run_if(on_event::<TaquinSolved>()),
+                on_tile_moved_increase_counter.run_if(on_event::<TileMoved>()),
+            ));
     }
 }
 
@@ -45,53 +49,49 @@ impl From<&mut MoveCounter> for String {
 }
 
 fn taquin_shuffled_listener(
-    mut events: EventReader<TaquinShuffled>,
     mut main_message_query: Query<(&mut AnimationPlayer, &MainMessage)>,
     mut shuffle_key_query: Query<&mut Style, With<ShuffleKey>>,
     mut move_counter_query: Query<(&mut Text, &mut MoveCounter)>
 ) {
-    for _ in events.read() {
-        let Ok((mut player, message)) = main_message_query.get_single_mut() else {
-            return;
-        };
-        if player.completions() == 0 || player.is_finished() {
-            player.play(message.shuffle_anim.clone_weak()).set_repeat(RepeatAnimation::Count(3)).replay();
-        }
+    let Ok((mut player, message)) = main_message_query.get_single_mut() else {
+        return;
+    };
 
-        if let Ok(mut style) = shuffle_key_query.get_single_mut() {
-            style.display = Display::None;
-        };
-
-        if let Ok((mut text, mut counter)) = move_counter_query.get_single_mut() {
-            counter.reset();
-            text.sections[0].value = counter.as_mut().into();
-        };
-
+    if player.completions() == 0 || player.is_finished() {
+        player.play(message.shuffle_anim.clone_weak()).set_repeat(RepeatAnimation::Count(3)).replay();
     }
+
+    if let Ok(mut style) = shuffle_key_query.get_single_mut() {
+        style.display = Display::None;
+    };
+
+    if let Ok((mut text, mut counter)) = move_counter_query.get_single_mut() {
+        counter.reset();
+        text.sections[0].value = counter.as_mut().into();
+    };
 }
 
-fn taquin_solved_listener(
-    mut events: EventReader<TaquinSolved>,
-    mut shuffle_key_query: Query<&mut Style, With<ShuffleKey>>
-) {
-    for _ in events.read() {
-        let Ok(mut style) = shuffle_key_query.get_single_mut() else {
-            return;
-        };
-        style.display = Display::DEFAULT;
-    }
-}
-
-fn tile_moved_listener(
-    mut tile_moved_events: EventReader<TileMoved>,
+fn on_taquin_solved_reset_gui(
+    mut shuffle_key_query: Query<&mut Style, With<ShuffleKey>>,
     mut move_counter_query: Query<(&mut Text, &mut MoveCounter)>
 ) {
-    for _ in tile_moved_events.read() {
-        if let Ok((mut text, mut counter)) = move_counter_query.get_single_mut() {
-            counter.incr();
-            text.sections[0].value = counter.as_mut().into();
-        };
-    }
+    let Ok(mut style) = shuffle_key_query.get_single_mut() else {
+        return;
+    };
+    style.display = Display::DEFAULT;
+    if let Ok((mut text, mut counter)) = move_counter_query.get_single_mut() {
+        counter.reset();
+        text.sections[0].value = counter.as_mut().into();
+    };
+}
+
+fn on_tile_moved_increase_counter(
+    mut move_counter_query: Query<(&mut Text, &mut MoveCounter)>
+) {
+    if let Ok((mut text, mut counter)) = move_counter_query.get_single_mut() {
+        counter.incr();
+        text.sections[0].value = counter.as_mut().into();
+    };
 }
 
 fn setup_gui(
@@ -189,8 +189,9 @@ fn setup_gui(
                     .with_style(Style {
                         position_type: PositionType::Relative,
                         ..default()
-                    })
-                , MainMessage { shuffle_anim }, main_message_name, animation_player));
+                    }), 
+                    MainMessage { shuffle_anim }, main_message_name, animation_player
+            ));
 
                 parent.spawn((
                     NodeBundle {
@@ -204,7 +205,8 @@ fn setup_gui(
                         ..default()
                     },
                     UiImage::new(asset_server.load("textures/icons/shuffle_key.png")),
-                    ShuffleKey));
+                    ShuffleKey
+                ));
             });
         });
 }
