@@ -15,7 +15,7 @@ impl Plugin for TaquinPlugin {
             .add_event::<TileMoved>()
             .insert_resource(Taquin::new(self.size))
             .init_resource::<TaquinSoundHandles>()
-            .add_systems(Update, (move_tile_selection, on_taquin_solved_play_tada.run_if(on_event::<TaquinSolved>())).run_if(in_state(AppState::Running)))
+            .add_systems(Update, (move_tile_selection, (on_taquin_solved_play_tada, on_taquin_solved_reset_is_shuffled).chain().run_if(on_event::<TaquinSolved>())).run_if(in_state(AppState::Running)))
             .add_systems(Update, (move_selected_tile, shuffle).run_if(in_state(AppState::Running).and_then(not(any_with_component::<TileLerp>()))));
     }
 }
@@ -47,12 +47,13 @@ impl FromWorld for TaquinSoundHandles {
 pub struct Taquin {
     pub size: i8,
     pub tiles_nb: usize,
-    pub tiles: Vec<Vec<TileValue>>
+    pub tiles: Vec<Vec<TileValue>>,
+    pub is_shuffled: bool,
 }
 
 impl Taquin {
     pub fn new(size: i8) -> Self {
-        Self { size, tiles_nb: (size * size) as usize, tiles: vec![] }
+        Self { size, tiles_nb: (size * size) as usize, tiles: vec![], is_shuffled: false }
     }
 
     pub fn get_next_selection_coordinates(&self, current_coordinates: &TileCoordinates, direction: KeyCode) -> TileCoordinates {
@@ -243,6 +244,7 @@ fn shuffle(
 
     loop {
         if do_shuffle(taquin.as_mut(), &mut tiles_query) == true {
+            taquin.is_shuffled = true;
             shuffle_events.send_default();
             break;
         }
@@ -269,13 +271,24 @@ fn do_shuffle(taquin : &mut Taquin, tiles_query: &mut Query<(&mut Transform, &mu
 }
 
 fn on_taquin_solved_play_tada(
+    taquin: Res<Taquin>,
     mut commands: Commands,
     handles: Res<TaquinSoundHandles>
 ) {
+    if !taquin.is_shuffled {
+        return;
+    }
+    
     commands.spawn(AudioBundle {
         source: handles.tada.clone(),
         settings: PlaybackSettings::DESPAWN,
     });
+}
+
+fn on_taquin_solved_reset_is_shuffled(
+    mut taquin: ResMut<Taquin>
+) {
+    taquin.is_shuffled = false;
 }
 
 #[cfg(test)]
@@ -291,21 +304,24 @@ mod tests {
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![TileValue(1), TileValue(2)], vec![TileValue(3), TileValue(4)]]
+            tiles: vec![vec![TileValue(1), TileValue(2)], vec![TileValue(3), TileValue(4)]],
+            is_shuffled: true,
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
 
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![TileValue(4), TileValue(3)], vec![TileValue(2), TileValue(1)]]
+            tiles: vec![vec![TileValue(4), TileValue(3)], vec![TileValue(2), TileValue(1)]],
+            is_shuffled: true,
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
 
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![TileValue(2), TileValue(3)], vec![TileValue(1), TileValue(4)]]
+            tiles: vec![vec![TileValue(2), TileValue(3)], vec![TileValue(1), TileValue(4)]],
+            is_shuffled: true,
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), true);
     }
@@ -318,14 +334,16 @@ mod tests {
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![TileValue(2), TileValue(1)], vec![TileValue(3), TileValue(4)]]
+            tiles: vec![vec![TileValue(2), TileValue(1)], vec![TileValue(3), TileValue(4)]],
+            is_shuffled: true,
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), false);
 
         app.world.insert_resource(Taquin {
             size: 2,
             tiles_nb: 4,
-            tiles: vec![vec![TileValue(4), TileValue(1)], vec![TileValue(2), TileValue(3)]]
+            tiles: vec![vec![TileValue(4), TileValue(1)], vec![TileValue(2), TileValue(3)]],
+            is_shuffled: true,
         });
         assert_eq!(app.world.resource::<Taquin>().is_solvable(), false);
     }

@@ -2,7 +2,7 @@ use bevy::{prelude::*, animation::RepeatAnimation};
 
 use std::f32::consts::PI;
 
-use crate::taquin::{TaquinShuffled, TaquinSolved, TileMoved};
+use crate::taquin::{TaquinShuffled, TaquinSolved, TileMoved, Taquin};
 
 pub struct GuiPlugin;
 
@@ -13,7 +13,7 @@ impl Plugin for GuiPlugin {
             .add_systems(Update, (
                 taquin_shuffled_listener.run_if(on_event::<TaquinShuffled>()),
                 on_taquin_solved_reset_gui.run_if(on_event::<TaquinSolved>()),
-                on_tile_moved_increase_counter.run_if(on_event::<TileMoved>()),
+                on_tile_moved_increase_counter.run_if(on_event::<TileMoved>().and_then(|taquin: Res<Taquin>| taquin.is_shuffled)),
             ));
     }
 }
@@ -72,17 +72,12 @@ fn taquin_shuffled_listener(
 }
 
 fn on_taquin_solved_reset_gui(
-    mut shuffle_key_query: Query<&mut Style, With<ShuffleKey>>,
-    mut move_counter_query: Query<(&mut Text, &mut MoveCounter)>
+    mut shuffle_key_query: Query<&mut Style, With<ShuffleKey>>
 ) {
     let Ok(mut style) = shuffle_key_query.get_single_mut() else {
         return;
     };
     style.display = Display::DEFAULT;
-    if let Ok((mut text, mut counter)) = move_counter_query.get_single_mut() {
-        counter.reset();
-        text.sections[0].value = counter.as_mut().into();
-    };
 }
 
 fn on_tile_moved_increase_counter(
