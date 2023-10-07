@@ -1,7 +1,7 @@
 use bevy::{prelude::*, input::{keyboard::KeyboardInput, ButtonState}};
 use rand::Rng;
 
-use crate::{tile::{TileCoordinates, TileValue, EmptyTile, TileSelected, TileLerp}, AppState};
+use crate::{tile::{TileCoordinates, TileValue, EmptyTile, TileSelected, TileLerp}, AppState, TaquinSprites};
 
 pub struct TaquinPlugin {
     pub(crate) size: i8
@@ -16,7 +16,9 @@ impl Plugin for TaquinPlugin {
             .insert_resource(Taquin::new(self.size))
             .init_resource::<TaquinSoundHandles>()
             .add_systems(Update, (move_tile_selection, (on_taquin_solved_play_tada, on_taquin_solved_reset_is_shuffled).chain().run_if(on_event::<TaquinSolved>())).run_if(in_state(AppState::Running)))
-            .add_systems(Update, (move_selected_tile, shuffle).run_if(in_state(AppState::Running).and_then(not(any_with_component::<TileLerp>()))));
+            .add_systems(Update, (move_selected_tile, shuffle).run_if(in_state(AppState::Running).and_then(not(any_with_component::<TileLerp>()))))
+            .add_systems(Update, toggle_taquin_texture)
+        ;
     }
 }
 
@@ -278,7 +280,7 @@ fn on_taquin_solved_play_tada(
     if !taquin.is_shuffled {
         return;
     }
-    
+
     commands.spawn(AudioBundle {
         source: handles.tada.clone(),
         settings: PlaybackSettings::DESPAWN,
@@ -289,6 +291,28 @@ fn on_taquin_solved_reset_is_shuffled(
     mut taquin: ResMut<Taquin>
 ) {
     taquin.is_shuffled = false;
+}
+
+fn toggle_taquin_texture(
+    keyboard_input: Res<Input<KeyCode>>,
+    taquin_sprite_handles: Res<TaquinSprites>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    materials_query: Query<&Handle<StandardMaterial>, With<TileCoordinates>>,
+) {
+    if !keyboard_input.just_released(KeyCode::T) {
+        return;
+    }
+    for material_handle in materials_query.iter() {
+        let Some(material) = materials.get_mut(material_handle) else {
+            return;
+        };
+    
+        if material.base_color_texture == Some(taquin_sprite_handles.bevy.clone()) {
+            material.base_color_texture = Some(taquin_sprite_handles.rust.clone());
+        } else {
+            material.base_color_texture = Some(taquin_sprite_handles.bevy.clone());
+        }
+    }
 }
 
 #[cfg(test)]

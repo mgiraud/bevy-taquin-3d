@@ -164,7 +164,6 @@ fn setup_tiles(
                 z: 0.75
             };
             let value = j * taquin.size + i + 1;
-            let name = Name::new("Tile-".to_string() + value.to_string().as_str());
             if i == taquin.size - 1 && j == taquin.size - 1 {
                 commands.spawn((Transform::from_translation(translation), EmptyTile, TileCoordinates::new(i, j)));
                 return TileValue(taquin.size * taquin.size);
@@ -182,16 +181,13 @@ fn setup_tiles(
                     mesh: meshes.add(block),
                     material: materials.add(StandardMaterial {
                         base_color_texture: Some(taquin_sprite_handles.bevy.clone()),
-                        double_sided: true,
-                        cull_mode: None,
+                        alpha_mode: AlphaMode::Blend,
                         ..default()
                     }),
                     transform: Transform::from_translation(translation),
                     ..default()
                 }, 
-                TileCoordinates::new(i, j), 
-                name,
-                AnimationPlayer::default(), 
+                TileCoordinates::new(i, j),
             ));
             if i == 0 && j == 0 {
                 tile_command.insert(TileSelected);

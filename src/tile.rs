@@ -104,9 +104,10 @@ fn move_tile(
         return;
     };
 
-    transform.translation = transform.translation.lerp(tile_lerp.0, 0.2);
+    transform.translation = transform.translation.lerp(tile_lerp.0, 0.25);
 
     if transform.translation.abs_diff_eq(tile_lerp.0, 0.01) {
+        transform.translation = tile_lerp.0;
         commands.entity(entity).remove::<TileLerp>();
     }
 }
